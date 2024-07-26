@@ -1,0 +1,99 @@
+#include <iostream>
+#include <random>
+#include <ctime>
+#include <cmath>
+#include <omp.h>
+
+// Serial version of the Monte Carlo simulation to estimate Pi
+double monteCarloPiSerial(int numPoints, int& insideCircle) {
+    insideCircle = 0;  // Initialize the count of points inside the quarter circle
+    std::default_random_engine generator(time(0));  // Create a random number generator with the current time as the seed
+    std::uniform_real_distribution<double> distribution(0.0, 1.0);  // Set up a uniform distribution for random numbers between 0 and 1
+
+    // Generate random points and count how many fall inside the quarter circle
+    for (int i = 0; i < numPoints; ++i) {
+        double x = distribution(generator);  // Get the x coordinate of the random point
+        double y = distribution(generator);  // Get the y coordinate of the random point
+
+        // Check if the point is inside the quarter circle
+        if (x * x + y * y <= 1.0) {
+            ++insideCircle;  // Increase the count if the point is inside
+        }
+    }
+
+    // Estimate Pi using the formula
+    return 4.0 * insideCircle / numPoints;
+}
+
+// Parallel version of the Monte Carlo simulation to estimate Pi
+double monteCarloPiParallel(int numPoints, int& insideCircle) {
+    insideCircle = 0;  // Initialize the count of points inside the quarter circle
+
+#pragma omp parallel
+    {
+        // Create random number generators for each thread
+        std::random_device rd;
+        std::mt19937 generator(rd());
+        std::uniform_real_distribution<double> distribution(0.0, 1.0);
+        int insideCircleLocal = 0;  // Local count for each thread
+
+        // Use static scheduling to divide the work evenly
+#pragma omp for schedule(static)
+        for (int i = 0; i < numPoints; ++i) {
+            double x = distribution(generator);  // Get the x coordinate of the random point
+            double y = distribution(generator);  // Get the y coordinate of the random point
+
+            // Check if the point is inside the quarter circle
+            if (x * x + y * y <= 1.0) {
+                ++insideCircleLocal;  // Increase the local count if the point is inside
+            }
+        }
+
+#pragma omp atomic  // Ensure updates to the shared variable are safe from race conditions
+        insideCircle += insideCircleLocal;  // Add the local count to the total count
+    }
+
+    // Estimate Pi using the formula
+    return 4.0 * insideCircle / numPoints;
+}
+
+int main() {
+    int numPointsArray[] = { 1000, 10000, 100000, 1000000, 10000000 };  // Different sizes of data
+    int numThreadsArray[] = { 1, 2, 4, 8 };  // Different numbers of threads
+
+    for (int numPoints : numPointsArray) {
+        int insideCircleSerial, insideCircleParallel;
+        double piEstimateSerial, piEstimateParallel;
+        double startTime, endTime;
+
+        // Run the serial version
+        startTime = omp_get_wtime();  // Record the start time
+        piEstimateSerial = monteCarloPiSerial(numPoints, insideCircleSerial);  // Run the serial Monte Carlo simulation
+        endTime = omp_get_wtime();  // Record the end time
+        double serialTime = endTime - startTime;  // Calculate the time taken
+
+        std::cout << "Serial version:" << std::endl;
+        std::cout << "Total number of random points: " << numPoints << std::endl;  // Print the total number of points
+        std::cout << "Estimated Pi value: " << piEstimateSerial << std::endl;  // Print the estimated Pi value
+        std::cout << "Runtime: " << serialTime << " seconds" << std::endl;
+        std::cout << std::endl;  // Print an empty line
+
+        // Run the parallel version
+        for (int numThreads : numThreadsArray) {  // Try different numbers of threads
+            omp_set_num_threads(numThreads);  // Set the number of threads
+
+            startTime = omp_get_wtime();  // Record the start time
+            piEstimateParallel = monteCarloPiParallel(numPoints, insideCircleParallel);  // Run the parallel Monte Carlo simulation
+            endTime = omp_get_wtime();  // Record the end time
+            double parallelTime = endTime - startTime;  // Calculate the time taken
+
+            std::cout << "Number of threads: " << numThreads << ", Parallel version:" << std::endl;
+            std::cout << "Total number of random points: " << numPoints << std::endl;  // Print the total number of points
+            std::cout << "Estimated Pi value: " << piEstimateParallel << std::endl;  // Print the estimated Pi value
+            std::cout << "Runtime: " << parallelTime << " seconds" << std::endl;
+            std::cout << std::endl;  // Print an empty line
+        }
+    }
+
+    return 0;  // End the program
+}
